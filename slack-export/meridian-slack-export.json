@@ -1,0 +1,172 @@
+{
+  "channels": [
+    {
+      "id": "C01ENGINEERING",
+      "name": "engineering-general",
+      "created": 1580000000,
+      "topic": "General engineering discussion"
+    },
+    {
+      "id": "C02BACKEND",
+      "name": "backend-platform",
+      "created": 1580000100,
+      "topic": "Backend platform, infra, and architecture"
+    },
+    {
+      "id": "C03INCIDENTS",
+      "name": "incidents",
+      "created": 1580000200,
+      "topic": "Production incidents and postmortems"
+    },
+    {
+      "id": "C04ONBOARDING",
+      "name": "new-engineers",
+      "created": 1590000000,
+      "topic": "Questions from new engineers welcome here"
+    },
+    {
+      "id": "C05ARCH",
+      "name": "architecture-decisions",
+      "created": 1585000000,
+      "topic": "Discussing architectural changes and decisions"
+    }
+  ],
+  "messages": [
+    {
+      "channel": "architecture-decisions",
+      "ts": "1612300000.000100",
+      "date": "2021-02-03",
+      "user": "daniel.osei",
+      "user_title": "Staff Engineer",
+      "text": "Flagging a major decision we need to align on: we're at a crossroads on our event pipeline. We've been using REST polling between services for transaction events and it's becoming a bottleneck. At our current volume (~40k transactions/day) we're seeing 200-400ms latency spikes when the billing service polls the ledger. Two options on the table: (1) Move to MQTT, (2) Move to Kafka. I've written up a full comparison but the short version is: MQTT wins for us right now because our ops team is 2 people and Kafka's operational overhead is significant. We can always migrate to Kafka at 10x scale. Thoughts?"
+    },
+    {
+      "channel": "architecture-decisions",
+      "ts": "1612303000.000200",
+      "date": "2021-02-03",
+      "user": "priya.ramaswamy",
+      "user_title": "Principal Engineer",
+      "text": "Agree on MQTT for now. The key thing people need to understand later: this was NOT a technical preference, it was an ops capacity decision. We had a Kafka POC running and it worked great technically. We killed it because we couldn't staff the maintenance burden. If we ever get a dedicated platform team, we should revisit. Make sure this gets into the ADR."
+    },
+    {
+      "channel": "architecture-decisions",
+      "ts": "1612305000.000300",
+      "date": "2021-02-03",
+      "user": "daniel.osei",
+      "user_title": "Staff Engineer",
+      "text": "Agreed. I'll write the ADR today. One more thing to document: we're using QoS Level 1 (at least once delivery) not Level 2 (exactly once) because Level 2 has ~3x latency overhead. This means our consumers MUST be idempotent. This is not optional — without idempotency we will double-charge customers. Tagging @backend-platform-team — this is load-bearing tribal knowledge, please make sure new engineers on your team know this before they touch anything in /services/billing or /services/ledger."
+    },
+    {
+      "channel": "architecture-decisions",
+      "ts": "1612310000.000400",
+      "date": "2021-02-03",
+      "user": "sofia.marchetti",
+      "user_title": "VP Engineering",
+      "text": "Documenting my approval here for the record. MQTT it is. Daniel please also make sure the onboarding docs for billing team get updated. This has burned two engineers already who assumed REST was still the interface."
+    },
+    {
+      "channel": "backend-platform",
+      "ts": "1625000000.000500",
+      "date": "2021-06-29",
+      "user": "james.whitfield",
+      "user_title": "Senior Engineer",
+      "text": "Quick PSA for anyone working on the payment processor integrations: we have a `ProcessorClient` abstract class in /services/payments/clients/base.py. DO NOT instantiate payment processor clients directly. Always go through the factory in processor_factory.py. The reason: we have Stripe, Adyen, and Braintree all active and the factory handles credential rotation, rate limiting, and fallback logic. If you call StripeClient() directly you bypass all of that and we've had two incidents because of it."
+    },
+    {
+      "channel": "backend-platform",
+      "ts": "1625003000.000600",
+      "date": "2021-06-29",
+      "user": "aiko.tanaka",
+      "user_title": "Engineer",
+      "text": "Why do we even have three payment processors? Seems like it adds a lot of complexity."
+    },
+    {
+      "channel": "backend-platform",
+      "ts": "1625005000.000700",
+      "date": "2021-06-29",
+      "user": "james.whitfield",
+      "user_title": "Senior Engineer",
+      "text": "Great question and honestly not obvious from the code. Short version: Stripe is our primary but has geographic restrictions — they don't support certain markets in Southeast Asia where we have customers. Adyen covers those markets. Braintree is legacy from our Series A days and some of our oldest enterprise customers have it baked into their contracts. We can't remove it without renegotiating. There's a project to deprecate Braintree eventually but it's not happening this year."
+    },
+    {
+      "channel": "backend-platform",
+      "ts": "1638000000.000800",
+      "date": "2021-11-27",
+      "user": "marcus.chen",
+      "user_title": "DevOps Lead",
+      "text": "Heads up on our database architecture for anyone new to the platform team. We run TWO Postgres clusters: `meridian-primary` handles all transactional write operations. `meridian-analytics` is a read replica with a 15-minute lag that feeds our reporting pipeline. NEVER run analytics queries against primary — we had an incident in Q3 2020 where a poorly optimized reporting query took down payments for 4 minutes. That's why the split exists. The connection strings are in AWS Secrets Manager under `/meridian/prod/db/primary` and `/meridian/prod/db/analytics`. If you're writing a new query and you're not sure which to use: if it's customer-facing or transactional, use primary. If it's a report or dashboard, use analytics."
+    },
+    {
+      "channel": "incidents",
+      "ts": "1601500000.000900",
+      "date": "2020-10-01",
+      "user": "priya.ramaswamy",
+      "user_title": "Principal Engineer",
+      "text": "INCIDENT POSTMORTEM - Payments Outage 09/28/2020 (4 min downtime). Root cause: analytics query ran against primary DB during peak traffic. The query was a monthly reconciliation report triggered manually by finance team. It held a table lock on `transactions` for ~90 seconds which blocked all payment writes. Resolution: (1) Created read replica for analytics workloads. (2) Added query routing middleware that rejects write-replica queries against primary if they contain GROUP BY or aggregations over 10k rows. (3) Documented the two-cluster architecture. Action item: ALL new engineers on platform must read this postmortem before touching DB code. It's pinned in #backend-platform."
+    },
+    {
+      "channel": "new-engineers",
+      "ts": "1640000000.001000",
+      "date": "2021-12-20",
+      "user": "rachel.kim",
+      "user_title": "Engineer (New)",
+      "text": "Hi everyone — just joined the billing team last week. Quick question: I'm trying to understand how transaction retries work. I see there's a `retry_transaction` function in /services/billing/retry.py but I can't find documentation on the retry logic or what triggers it. Can someone point me in the right direction?"
+    },
+    {
+      "channel": "new-engineers",
+      "ts": "1640002000.001100",
+      "date": "2021-12-20",
+      "user": "daniel.osei",
+      "user_title": "Staff Engineer",
+      "text": "Hey Rachel, welcome! The retry logic has some history. Originally we had exponential backoff with max 3 retries. In early 2021 we changed to a fixed 2-retry limit with a 30-second delay because we discovered that exponential backoff was causing 'retry storms' during Stripe downtime events — basically all the failed transactions would pile up and retry simultaneously when Stripe came back, which overloaded the system. The 30-second fixed delay is deliberately conservative. You'll also notice we skip retries entirely for card_declined errors (error code CE-401 in our internal taxonomy) because those are deterministic failures — retrying a declined card never works and wastes customer trust. This is NOT documented anywhere except this conversation and a comment in the code. Adding it to the wiki is on my to-do list 😬"
+    },
+    {
+      "channel": "new-engineers",
+      "ts": "1640004000.001200",
+      "date": "2021-12-20",
+      "user": "rachel.kim",
+      "user_title": "Engineer (New)",
+      "text": "This is incredibly helpful, thank you Daniel. Is there a doc somewhere that explains our internal error taxonomy? I keep seeing codes like CE-401, PE-500, etc in the code but couldn't find an explanation."
+    },
+    {
+      "channel": "new-engineers",
+      "ts": "1640006000.001300",
+      "date": "2021-12-20",
+      "user": "james.whitfield",
+      "user_title": "Senior Engineer",
+      "text": "There *was* a doc but it's in a deprecated Notion workspace from 2019 that most people can't access. The source of truth is actually the enum in /services/shared/error_codes.py — that file has comments that explain each code. Not ideal, I know. The prefix system is: CE = customer error (their fault, don't retry), PE = processor error (Stripe/Adyen issue, can retry), IE = internal error (our bug, page the on-call). This is one of those things we really need to document properly."
+    },
+    {
+      "channel": "engineering-general",
+      "ts": "1650000000.001400",
+      "date": "2022-04-15",
+      "user": "sofia.marchetti",
+      "user_title": "VP Engineering",
+      "text": "Team — with the Series B closed, we're going to double the engineering team over the next 12 months. I want to be honest with everyone: our onboarding is not ready for this. New engineers are taking 6-8 weeks to ship their first meaningful PR and a lot of that time is spent in DMs asking people questions that should be documented. I'm putting together a working group to fix this. If you've been at Meridian 2+ years and want to help, reply here."
+    },
+    {
+      "channel": "engineering-general",
+      "ts": "1650002000.001500",
+      "date": "2022-04-15",
+      "user": "marcus.chen",
+      "user_title": "DevOps Lead",
+      "text": "I'm in. DevOps side is especially bad — new engineers have no idea how our Terraform modules are structured or why we have 3 separate AWS accounts (prod, staging, and the legacy account from before we had proper IAM. The legacy account is named 'meridian-dev-old' and is NOT the staging environment despite the name. I have explained this to every single new hire for 2 years.)"
+    },
+    {
+      "channel": "backend-platform",
+      "ts": "1660000000.001600",
+      "date": "2022-08-09",
+      "user": "priya.ramaswamy",
+      "user_title": "Principal Engineer",
+      "text": "Archiving this here because it comes up constantly: why does our auth system use JWTs for the external API but session cookies for the internal dashboard? Short answer: external API was built for developers integrating with us, who need stateless auth they can use from any client. Internal dashboard was built for our ops team who use it from browsers, where cookies are simpler and more secure (httpOnly prevents XSS token theft). They were built by different teams 18 months apart and nobody ever unified them because both work fine. There's an open RFC to standardize on JWTs everywhere but it's been in RFC status for 8 months and is unlikely to move without dedicated headcount."
+    },
+    {
+      "channel": "architecture-decisions",
+      "ts": "1670000000.001700",
+      "date": "2022-12-03",
+      "user": "daniel.osei",
+      "user_title": "Staff Engineer",
+      "text": "Posting context on the `legacy_reconciliation` module that people keep asking about. This module in /services/billing/legacy_reconciliation/ handles end-of-day reconciliation for our oldest enterprise customers (accounts created before 2020). It uses a completely different reconciliation logic than the modern `reconciliation` module because those customers have contractual SLAs that depend on specific calculation methods we can't change without their sign-off. DO NOT touch this module without talking to the enterprise team first. We have 6 customers on it generating ~$2M ARR. The code looks wrong but it's intentionally different. There are comments in the code but they don't explain the WHY — that's here."
+    }
+  ]
+}
